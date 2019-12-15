@@ -220,8 +220,10 @@ class Help
         {
         }
 
-        int run() const
+        int run()
         {
+            computeMaxIntroLengths();
+
             const auto commandIdentifier = parser.find("/");
 
             bool explicitHelp = false;
@@ -257,18 +259,17 @@ class Help
         static const size_t margin = 3;
         static const size_t maxLineLength = 97;
 
+        size_t maxCommandIntroLength = 0;
+        size_t maxParameterIntroLength = 0;
+
         void printGenericHelp() const
         {
-            size_t maxCommandNameLength = 0;
-            for (const Command &command : syntax.commands)
-                maxCommandNameLength = std::max(maxCommandNameLength, command.name.length());
-
-            const char *executableName = getApplicationName();
+            std::string executableName = getApplicationName();
             print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
             
             const size_t numberOfCommands = syntax.commands.size();
             if (numberOfCommands < 1) {
-                print(margin, "", std::string("Usage: ") + executableName + " [--version] [--help]");
+                print(margin, "", "Usage: " + executableName + " [--version] [--help]");
                 return;
             }
             
@@ -277,19 +278,17 @@ class Help
                 return;
             }
 
-            print(margin, "", std::string("Usage: ") + executableName + " [--version] [--help] <command> [<args>]");
-
+            print(margin, "", "Usage: " + executableName + " [--version] [--help] <command> [<args>]");
             std::cout << std::endl << "Commands:" << std::endl;
+            for (const Command &command : syntax.commands) {
 
-            for (const Command &command : syntax.commands)
-                if (!command.name.empty())
-                    print(margin + maxCommandNameLength + margin, std::string(margin, ' ') +
-                        command.name + std::string(maxCommandNameLength + margin - command.name.length(), ' '),
-                        command.brief);
+                std::string intro = std::string(margin, ' ') + command.name;
+                intro.append(maxCommandIntroLength - margin - command.name.length(), ' ');
+                print(maxCommandIntroLength, intro, command.brief);
+            }
 
             std::cout << std::endl;
-
-            print(margin, "", std::string("See '") + executableName + " help <command>' to read about specific command.");
+            print(margin, "", "See '" + executableName + " help <command>' to read about specific command.");
         }
 
         void printCommandHelp(const std::string &commandName) const
@@ -298,52 +297,41 @@ class Help
             if (!command)
                 return;
 
-            print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
-
-            size_t maxParameterNameLength = 0;
-            const char *executableName = getApplicationName();
-            std::string usage = std::string("Usage: ") + executableName + " " + command->name;
+            std::string usage = "Usage: " + getApplicationName() + " " + command->name;
             for (const Parameter &parameter : command->parameters) {
-                maxParameterNameLength = std::max(maxParameterNameLength, parameter.name.length() +
-                    parameter.hasValue ? parameter.identifier.length() + 3 : 0);
 
-                std::string paramX = parameter.isRequired ? parameter.identifier : "<" + parameter.identifier + ">";
-                std::string paramInfo = parameter.hasValue ? parameter.name + " " + paramX : parameter.name;
-                usage += parameter.isRequired ? " <" + paramInfo + ">" : " [" + paramInfo + "]";
+                std::string paramBrief = parameter.name;
+                if (parameter.hasValue) {
+                    if (parameter.isRequired)
+                        paramBrief += " " + parameter.identifier;
+                    else
+                        paramBrief += " <" + parameter.identifier + ">";
+                }
+
+                usage += parameter.isRequired ? " <" + paramBrief + ">" : " [" + paramBrief + "]";
             }
 
+            print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
             print(margin, "", usage);
-            std::cout << std::endl;
-            print(margin, "", command->remarks);
+
+            if (!command->remarks.empty()) {
+                std::cout << std::endl;
+                print(margin, "", command->remarks);
+            }
 
             if (command->parameters.empty())
                 return;
 
-            std::cout << std::endl << "Arguments:" << std::endl;
+            std::cout << std::endl << "Command parameters:" << std::endl;
+            for (const Parameter &parameter : command->parameters) {
 
-            for (const Parameter &parameter : command->parameters)
-                if (!parameter.name.empty()) {
-                    std::string nnn = parameter.name;
-                    if (parameter.hasValue)
-                        nnn += " <" + parameter.identifier + ">";
+                std::string intro = std::string(margin, ' ') + parameter.name;
+                if (parameter.hasValue)
+                    intro += " <" + parameter.identifier + ">";
 
-                    print(margin + maxParameterNameLength + margin, std::string(margin, ' ') +
-                        nnn + std::string(maxParameterNameLength + margin - nnn.length(), ' '),
-                        parameter.remarks);
-                }
-        }
-
-        const char *getApplicationName() const
-        {
-            const char *applicationName = strrchr(arguments[0], '/');
-            if (applicationName)
-                return applicationName + 1;
-
-            applicationName = strrchr(arguments[0], '\\');
-            if (applicationName)
-                return applicationName + 1;
-
-            return arguments[0];
+                intro.append(maxParameterIntroLength - intro.length(), ' ');
+                print(maxParameterIntroLength, intro, parameter.remarks);
+            }
         }
 
         void print(size_t newLineIndent, std::string intro, std::string message) const
@@ -387,6 +375,39 @@ class Help
             if (hasLineStarted)
                 std::cout << singleLine << std::endl;
         }
+
+        void computeMaxIntroLengths()
+        {
+            for (const Command &command : syntax.commands) {
+
+                size_t commandIntroLength = 2 * margin + command.name.length();
+                if (maxCommandIntroLength < commandIntroLength)
+                    maxCommandIntroLength = commandIntroLength;
+
+                for (const Parameter &parameter : command.parameters) {
+
+                    size_t parameterIntroLength = 2 * margin + parameter.name.length();
+                    if (parameter.hasValue)
+                        parameterIntroLength += 3 + parameter.identifier.length();
+
+                    if (maxParameterIntroLength < parameterIntroLength)
+                        maxParameterIntroLength = parameterIntroLength;
+                }
+            }
+        }
+
+        std::string getApplicationName() const
+        {
+            const char *applicationName = strrchr(arguments[0], '/');
+            if (applicationName)
+                return applicationName + 1;
+
+            applicationName = strrchr(arguments[0], '\\');
+            if (applicationName)
+                return applicationName + 1;
+
+            return arguments[0];
+        }
 };
 
 int main(int argc, const char **argv)
@@ -423,20 +444,17 @@ int main(int argc, const char **argv)
         "To exit secured mode the device need to be reset to factory "
         "settings using special electrical technique."));
     syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
-    syntax.add(Parameter("force", "-f", "Do not prompt user.", false, false));
+    syntax.add(Parameter("force", "-f", "Do not prompt.", false, false));
 
     Arguments arguments(argc, argv);
     Parser parser(syntax, arguments);
     if (!parser.parse()) {
         Help help(syntax, parser, arguments);
-        std::cout << "HELP RER: " << help.run() << std::endl;
-        return 0;
+        return help.run();
     }
-
 
     for (auto item : parser)
         std::cout << "'" << item.first << "' = '" << item.second << "'" << std::endl;
 
-    std::cout << "Program - Done." << std::endl;
     return 0;
 }
