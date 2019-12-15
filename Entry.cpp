@@ -11,17 +11,14 @@ class Parameter
     public:
 
         const std::string identifier;
-        const std::string shortName;
-        const std::string fullName;
-        const std::string brief;
+        const std::string name;
+        const std::string remarks;
 
         const bool isRequired;
-        const size_t numberOfValues;
+        const bool hasValue;
 
-        Parameter(std::string identifier, std::string shortName, std::string fullName,
-            size_t numberOfValues, std::string brief, bool isRequired) :
-            identifier(identifier), shortName(shortName), fullName(fullName), brief(brief),
-            isRequired(isRequired), numberOfValues(numberOfValues)
+        Parameter(std::string identifier, std::string name, std::string remarks, bool isRequired, bool hasValue) :
+            identifier(identifier), name(name), remarks(remarks), isRequired(isRequired), hasValue(hasValue)
         {
         }
 };
@@ -33,12 +30,12 @@ class Command
         const std::string identifier;
         const std::string name;
         const std::string brief;
-        const std::string description;
+        const std::string remarks;
 
         std::list<Parameter> parameters;
 
-        Command(std::string identifier, std::string name, std::string brief, std::string description) :
-            identifier(identifier), name(name), brief(brief), description(description)
+        Command(std::string identifier, std::string name, std::string brief, std::string remarks) :
+            identifier(identifier), name(name), brief(brief), remarks(remarks)
         {
         }
 };
@@ -57,30 +54,30 @@ class Syntax
         {
         }
 
-        void add(Command command)
+        void add(const Command command)
         {
             commands.push_back(command);
         }
 
-        void add(Parameter parameter)
+        void add(const Parameter parameter)
         {
             if (!commands.empty())
                 commands.back().parameters.push_back(parameter);
         }
 
-        const Command *findCommandByName(const char *commandName) const
+        const Command *findCommandByName(const char *name) const
         {
             for (const Command &command : commands)
-                if (command.name == commandName)
+                if (command.name == name)
                     return &command;
 
             return nullptr;
         }
 
-        const Parameter *findParameterByName(const Command &command, const char *parameterName) const
+        const Parameter *findParameterByName(const Command &command, const char *name) const
         {
             for (const Parameter &parameter : command.parameters)
-                if (parameter.fullName == parameterName || parameter.shortName == parameterName)
+                if (parameter.name == name)
                     return &parameter;
 
             return nullptr;
@@ -163,7 +160,7 @@ class Parser : public std::map<std::string, std::string>
             if (numberOfArguments == 2)
                 insert({ "/", "help" });
 
-            if (numberOfArguments != 3)
+            if (numberOfArguments != 3 || syntax.commands.size() < 2)
                 return;
 
             const char *commandName = arguments[2];
@@ -183,16 +180,12 @@ class Parser : public std::map<std::string, std::string>
             while (argumentIndex < numberOfArguments) {
 
                 const Parameter *parameter = syntax.findParameterByName(command, arguments[argumentIndex++]);
-                if (!parameter || argumentIndex + parameter->numberOfValues > numberOfArguments)
+                if (!parameter || argumentIndex + !!parameter->hasValue > numberOfArguments)
                     return false;
 
-                std::string singleValue = (parameter->numberOfValues == 1) ? arguments[argumentIndex++] : "";
-                if (!insert({ "/" + parameter->identifier, singleValue }).second)
+                std::string value = parameter->hasValue ? arguments[argumentIndex++] : "";
+                if (!insert({ "/" + parameter->identifier, value }).second)
                     return false;
-
-                if (parameter->numberOfValues != 1)
-                    for (size_t valueIndex = 0; valueIndex < parameter->numberOfValues; valueIndex++)
-                        insert({ "/" + parameter->identifier + "/" + std::to_string(valueIndex), arguments[argumentIndex++] });
             }
 
             return areAllRequiredParametersSpecified(command);
@@ -272,6 +265,18 @@ class Help
 
             const char *executableName = getApplicationName();
             print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
+            
+            const size_t numberOfCommands = syntax.commands.size();
+            if (numberOfCommands < 1) {
+                print(margin, "", std::string("Usage: ") + executableName + " [--version] [--help]");
+                return;
+            }
+            
+            if (numberOfCommands == 1) {
+                printCommandHelp(syntax.commands.front().identifier);
+                return;
+            }
+
             print(margin, "", std::string("Usage: ") + executableName + " [--version] [--help] <command> [<args>]");
 
             std::cout << std::endl << "Commands:" << std::endl;
@@ -295,35 +300,37 @@ class Help
 
             print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
 
+            size_t maxParameterNameLength = 0;
             const char *executableName = getApplicationName();
             std::string usage = std::string("Usage: ") + executableName + " " + command->name;
             for (const Parameter &parameter : command->parameters) {
-                std::string name = parameter.fullName.empty() ? parameter.shortName : parameter.fullName;
-                if (!name.empty())
-                    usage += parameter.isRequired ? " <" + name + ">" : " [" + name + "]";
+                maxParameterNameLength = std::max(maxParameterNameLength, parameter.name.length() +
+                    parameter.hasValue ? parameter.identifier.length() + 3 : 0);
+
+                std::string paramX = parameter.isRequired ? parameter.identifier : "<" + parameter.identifier + ">";
+                std::string paramInfo = parameter.hasValue ? parameter.name + " " + paramX : parameter.name;
+                usage += parameter.isRequired ? " <" + paramInfo + ">" : " [" + paramInfo + "]";
             }
 
-
-
             print(margin, "", usage);
-
-            // print(margin, "", std::string("Usage: ") + executableName + " " + );
-
-            // ...
-
-         /* std::cout << "Loro command-line tool -v" << getVersionString() << std::endl;
-            std::cout << "Usage: loro secure [name] [-f]" << std::endl;
             std::cout << std::endl;
-            std::cout << "Command secures Loro device. Once the device is secured its" << std::endl;
-            std::cout << "program cannot be read or updated even using external programmer." << std::endl;
-            std::cout << "To exit secured mode the device need to reset to factory settings" << std::endl;
-            std::cout << "using special electrical technique." << std::endl;
-            std::cout << std::endl;
-            std::cout << "Arguments:" << std::endl;
-            std::cout << "  -d <name>     Name identifying device. When only one Loro device" << std::endl;
-            std::cout << "                is connected the name can be omitted." << std::endl;
-            std::cout << "  -f            By default command waits for user acknowledgement" << std::endl;
-            std::cout << "                and the argument disables it." << std::endl; */
+            print(margin, "", command->remarks);
+
+            if (command->parameters.empty())
+                return;
+
+            std::cout << std::endl << "Arguments:" << std::endl;
+
+            for (const Parameter &parameter : command->parameters)
+                if (!parameter.name.empty()) {
+                    std::string nnn = parameter.name;
+                    if (parameter.hasValue)
+                        nnn += " <" + parameter.identifier + ">";
+
+                    print(margin + maxParameterNameLength + margin, std::string(margin, ' ') +
+                        nnn + std::string(maxParameterNameLength + margin - nnn.length(), ' '),
+                        parameter.remarks);
+                }
         }
 
         const char *getApplicationName() const
@@ -384,7 +391,8 @@ class Help
 
 int main(int argc, const char **argv)
 {
-    static const char *deviceNameInfo = "Name of a device. Argument can be ignored when only one device is connected.";
+    static const char *deviceNameInfo = "Name of a device. "
+        "Argument can be ignored when only one device is connected.";
 
     Syntax syntax("Loro command-line tool", "1.0");
 
@@ -393,29 +401,29 @@ int main(int argc, const char **argv)
 
     syntax.add(Command("reset", "reset", "Resets device.",
         "Command resets Loro device."));
-    syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
+    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
 
     syntax.add(Command("program", "program", "Programs device with specified file.",
         "Command programs Loro device with specified program file."));
-    syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
-    syntax.add(Parameter("program-file-path", "-p", "", 1, "Program file path.", true));
+    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
+    syntax.add(Parameter("program-file-path", "-p", "Program file path.", true, true));
 
     syntax.add(Command("backup", "backup", "Downloads device program into local file for backup.",
         "Command reads Loro device program and stores it in local file."));
-    syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
-    syntax.add(Parameter("program-file-path", "-p", "", 1, "Program file path.", true));
+    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
+    syntax.add(Parameter("program-file-path", "-p", "Program file path.", true, true));
 
     syntax.add(Command("erase", "erase", "Erases device.",
         "Command erases program from Loro device."));
-    syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
+    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
 
     syntax.add(Command("secure", "secure", "Secures device.",
         "Command secures Loro device. Once the device is secured its "
         "program cannot be read or updated even by external programmer. "
         "To exit secured mode the device need to be reset to factory "
         "settings using special electrical technique."));
-    syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
-    syntax.add(Parameter("force", "-f", "", 0, "Executes command without waiting for user interaction.", false));
+    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
+    syntax.add(Parameter("force", "-f", "Do not prompt user.", false, false));
 
     Arguments arguments(argc, argv);
     Parser parser(syntax, arguments);
@@ -424,6 +432,7 @@ int main(int argc, const char **argv)
         std::cout << "HELP RER: " << help.run() << std::endl;
         return 0;
     }
+
 
     for (auto item : parser)
         std::cout << "'" << item.first << "' = '" << item.second << "'" << std::endl;
