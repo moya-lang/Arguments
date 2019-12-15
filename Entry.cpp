@@ -80,9 +80,9 @@ class Syntax
 
             Command &command = commands.back();
             if (command.parameters.empty())
-                command.note = note;
+                command.note += note;
             else
-                command.parameters.back().note = note;
+                command.parameters.back().note += note;
         }
 };
 
@@ -128,23 +128,21 @@ class Parser
             if (!commandName && numberOfCommands != 1)
                 return numberOfCommands == 0;
 
-            if (commandName && isHelpCommandName(commandName)) {
-                parseHelpCommand();
-                return false;
-            }
-
             if (commandName && isVersionCommandName(commandName)) {
                 parseVersionCommand();
                 return false;
             }
 
-            const Command *command = (numberOfCommands == 1) ? &syntax.commands.front() : findCommandByName(commandName);
-            if (command) {
-                map["/"] = command->identifier;
-                return parseParameters(*command);
+            if (commandName && isHelpCommandName(commandName)) {
+                parseHelpCommand();
+                return false;
             }
 
-            return false;
+            if (numberOfCommands == 1)
+                return parseParameters(syntax.commands.front());
+
+            const Command *command = findCommandByName(commandName);
+            return command ? parseParameters(*command) : false;
         }
 
         const char *first()
@@ -173,6 +171,12 @@ class Parser
         Map::iterator iterator;
         Map map;
 
+        void parseVersionCommand()
+        {
+            if (arguments.getNumberOfArguments() == 2)
+                map["/"] = "version";
+        }
+
         void parseHelpCommand()
         {
             const size_t numberOfArguments = arguments.getNumberOfArguments();
@@ -190,23 +194,46 @@ class Parser
             }
         }
 
-        void parseVersionCommand()
-        {
-            if (arguments.getNumberOfArguments() == 2)
-                map["/"] = "version";
-        }
-
         bool parseParameters(const Command &command)
         {
-            command.parameters.front().isRequired;
-            command.parameters.front().numberOfValues;
-            command.parameters.front().values;
+            map["/"] = command.identifier;
 
-            // REMEMBER: Single command have no command specified (syntax.commands.size() == 1)
-            // TODO: check if all required parameters are specifieid
-            // ...
+            const size_t numberOfArguments = arguments.getNumberOfArguments();
+            size_t argumentIndex = syntax.commands.size() == 1 ? 1 : 2;
+            while (argumentIndex < numberOfArguments) {
 
-            return false;
+                const Parameter *parameter = findParameterByName(command, arguments[argumentIndex++]);
+                if (!parameter || argumentIndex + parameter->numberOfValues > numberOfArguments)
+                    return false;
+
+                std::string singleValue = (parameter->numberOfValues == 1) ? arguments[argumentIndex++] : "";
+                if (!map.insert({ "/" + parameter->identifier, singleValue }).second)
+                    return false;
+
+                if (parameter->numberOfValues != 1)
+                    for (size_t valueIndex = 0; valueIndex < parameter->numberOfValues; valueIndex++)
+                        map["/" + parameter->identifier + "/" + std::to_string(valueIndex)] = arguments[argumentIndex++];
+            }
+
+            return areAllRequiredParametersSpecified(command);
+        }
+
+        bool areAllRequiredParametersSpecified(const Command &command) const
+        {
+            for (const Parameter &parameter : command.parameters)
+                if (parameter.isRequired && map.find("/" + parameter.identifier) == map.end())
+                    return false;
+
+            return true;
+        }
+
+        const Parameter *findParameterByName(const Command &command, const char *parameterName) const
+        {
+            for (const Parameter &parameter : command.parameters)
+                if (parameter.fullName == parameterName || parameter.shortName == parameterName)
+                    return &parameter;
+
+            return nullptr;
         }
 
         const Command *findCommandByName(const char *commandName) const
@@ -280,10 +307,10 @@ int main(int argc, const char **argv)
     syntax.add(Note("Command erases program from Loro device."));
     syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
 
-    syntax.add(Command("erase", "", "secure", "Secures device."));
-    syntax.add(Note("Command secures Loro device. Once the device is secured its"));
-    syntax.add(Note("program cannot be read or updated even using external programmer."));
-    syntax.add(Note("To exit secured mode the device need to reset to factory settings"));
+    syntax.add(Command("secure", "", "secure", "Secures device."));
+    syntax.add(Note("Command secures Loro device. Once the device is secured its "));
+    syntax.add(Note("program cannot be read or updated even using external programmer. "));
+    syntax.add(Note("To exit secured mode the device need to reset to factory settings "));
     syntax.add(Note("using special electrical technique."));
     syntax.add(Parameter("device-name", "-d", "", 1, deviceNameInfo, false));
     syntax.add(Parameter("force", "-f", "", 0, "Executes command without waiting for user interaction.", false));
@@ -298,6 +325,6 @@ int main(int argc, const char **argv)
     for (const char *name = parser.first(); name; name = parser.next())
         std::cout << "'" << name << "' = '" << parser[name] << "'" << std::endl;
 
-    std::cout << "Done." << std::endl;
+    std::cout << "Program - Done." << std::endl;
     return 0;
 }
