@@ -6,6 +6,10 @@
 #include <list>
 #include <map>
 
+namespace Moya {
+namespace System {
+namespace Arguments {
+
 class Parameter
 {
     public:
@@ -173,7 +177,8 @@ class Parser : public std::map<std::string, std::string>
 
         bool parseParameters(const Command &command)
         {
-            insert({ "/", command.identifier });
+            if (syntax.commands.size() > 1)
+                insert({ "/", command.identifier });
 
             const size_t numberOfArguments = arguments.getNumberOfArguments();
             size_t argumentIndex = syntax.commands.size() == 1 ? 1 : 2;
@@ -228,12 +233,14 @@ class Help
 
             bool explicitHelp = false;
             if (commandIdentifier != parser.end()) {
-                explicitHelp = (commandIdentifier->second == "help");
 
                 if (commandIdentifier->second == "version") {
                     std::cout << syntax.programVersion << std::endl;
                     return 0;
                 }
+
+                if (commandIdentifier->second == "help")
+                    explicitHelp = true;
             }
 
             const auto commandHelp = parser.find("/command");
@@ -264,17 +271,17 @@ class Help
 
         void printGenericHelp() const
         {
-            std::string executableName = getApplicationName();
-            print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
-            
             const size_t numberOfCommands = syntax.commands.size();
-            if (numberOfCommands < 1) {
-                print(margin, "", "Usage: " + executableName + " [--version] [--help]");
+            if (numberOfCommands == 1) {
+                printCommandHelp(syntax.commands.front().name);
                 return;
             }
-            
-            if (numberOfCommands == 1) {
-                printCommandHelp(syntax.commands.front().identifier);
+
+            std::string executableName = getApplicationName();
+            print(margin, "", syntax.programName + ", version: " + syntax.programVersion);
+
+            if (numberOfCommands < 1) {
+                print(margin, "", "Usage: " + executableName + " [--version] [--help]");
                 return;
             }
 
@@ -297,7 +304,10 @@ class Help
             if (!command)
                 return;
 
-            std::string usage = "Usage: " + getApplicationName() + " " + command->name;
+            std::string usage = "Usage: " + getApplicationName();
+            if (syntax.commands.size() > 1)
+                usage += " " + command->name;
+
             for (const Parameter &parameter : command->parameters) {
 
                 std::string paramBrief = parameter.name;
@@ -410,51 +420,6 @@ class Help
         }
 };
 
-int main(int argc, const char **argv)
-{
-    static const char *deviceNameInfo = "Name of a device. "
-        "Argument can be ignored when only one device is connected.";
-
-    Syntax syntax("Loro command-line tool", "1.0");
-
-    syntax.add(Command("list", "list", "Lists all Loro devices.",
-        "Command lists system names of all connected Loro devices."));
-
-    syntax.add(Command("reset", "reset", "Resets device.",
-        "Command resets Loro device."));
-    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
-
-    syntax.add(Command("program", "program", "Programs device with specified file.",
-        "Command programs Loro device with specified program file."));
-    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
-    syntax.add(Parameter("program-file-path", "-p", "Program file path.", true, true));
-
-    syntax.add(Command("backup", "backup", "Downloads device program into local file for backup.",
-        "Command reads Loro device program and stores it in local file."));
-    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
-    syntax.add(Parameter("program-file-path", "-p", "Program file path.", true, true));
-
-    syntax.add(Command("erase", "erase", "Erases device.",
-        "Command erases program from Loro device."));
-    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
-
-    syntax.add(Command("secure", "secure", "Secures device.",
-        "Command secures Loro device. Once the device is secured its "
-        "program cannot be read or updated even by external programmer. "
-        "To exit secured mode the device need to be reset to factory "
-        "settings using special electrical technique."));
-    syntax.add(Parameter("device-name", "-d", deviceNameInfo, false, true));
-    syntax.add(Parameter("force", "-f", "Do not prompt.", false, false));
-
-    Arguments arguments(argc, argv);
-    Parser parser(syntax, arguments);
-    if (!parser.parse()) {
-        Help help(syntax, parser, arguments);
-        return help.run();
-    }
-
-    for (auto item : parser)
-        std::cout << "'" << item.first << "' = '" << item.second << "'" << std::endl;
-
-    return 0;
+}
+}
 }
