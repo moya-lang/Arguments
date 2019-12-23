@@ -1,3 +1,6 @@
+#ifndef ArgumentsH
+#define ArgumentsH
+
 #include <algorithm>
 #include <iostream>
 #include <cstring>
@@ -423,3 +426,5 @@ class Help
 }
 }
 }
+
+#endif
